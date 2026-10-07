@@ -30,6 +30,9 @@ from pathlib import Path
 # Ensure src/ is on path when running as script
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import uvicorn
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.apps import A2AStarletteApplication
@@ -40,9 +43,8 @@ from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentSkill,
-    Message,
-    TextPart,
 )
+from a2a.utils import new_agent_text_message
 
 from agents.quiz_generator import generate_questions, grade_answer
 
@@ -125,10 +127,9 @@ class QuizAgentExecutor(AgentExecutor):
         """Process an incoming quiz task."""
 
         # ── Parse request ─────────────────────────────────────────────
-        request_text = ""
-        for part in context.current_request.params.message.parts:
-            if isinstance(part, TextPart):
-                request_text += part.text
+        # get_user_input() joins the text parts of the incoming message
+        # (a2a-sdk 0.3 wraps each part as Part(root=TextPart(...))).
+        request_text = context.get_user_input()
 
         try:
             request_data = json.loads(request_text)
@@ -200,10 +201,13 @@ class QuizAgentExecutor(AgentExecutor):
         print(f"[Quiz A2A] Task complete: status={result['status']}")
 
         # ── Emit result ───────────────────────────────────────────────
+        # new_agent_text_message() sets the required message_id and ties
+        # the reply to this request's task/context IDs.
         await event_queue.enqueue_event(
-            Message(
-                role="agent",
-                parts=[TextPart(text=json.dumps(result, indent=2))],
+            new_agent_text_message(
+                json.dumps(result, indent=2),
+                context_id=context.context_id,
+                task_id=context.task_id,
             )
         )
 

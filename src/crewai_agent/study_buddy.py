@@ -22,7 +22,16 @@ Agent Card:
 
 import asyncio
 import json
-import os
+import sys
+import time
+from pathlib import Path
+
+# Add src/ to path so the shared model config in src/llm.py is importable
+# when this file is run directly (python src/crewai_agent/study_buddy.py)
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from dotenv import load_dotenv
+load_dotenv()
 
 import uvicorn
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -34,16 +43,64 @@ from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentSkill,
-    Message,
-    TextPart,
 )
+from a2a.utils import new_agent_text_message
 from crewai import Agent, Crew, LLM, Process, Task
+from crewai.events import crewai_event_bus
+from crewai.events.types.llm_events import (
+    LLMCallCompletedEvent,
+    LLMCallFailedEvent,
+    LLMCallStartedEvent,
+)
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from llm import OPENROUTER_BASE_URL, get_api_key, model_for
+from token_usage import record_usage
 
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Token usage logging
+#
+# CrewAI doesn't use LangChain callbacks, so the LLM factory's usage callback
+# doesn't see these calls. Instead we listen on CrewAI's event bus, which
+# emits one event per LLM call (a Study Buddy run is usually 2 calls: one
+# deciding to use the topic_analyser tool, one writing the answer).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_llm_call_started: dict[str, float] = {}   # call_id -> start time
+
+
+@crewai_event_bus.on(LLMCallStartedEvent)
+def _on_llm_call_started(source, event: LLMCallStartedEvent) -> None:
+    _llm_call_started[event.call_id] = time.perf_counter()
+
+
+@crewai_event_bus.on(LLMCallCompletedEvent)
+def _on_llm_call_completed(source, event: LLMCallCompletedEvent) -> None:
+    start = _llm_call_started.pop(event.call_id, None)
+    usage = event.usage or {}
+    record_usage(
+        "study_buddy",
+        event.model or model_for("study_buddy"),
+        usage.get("prompt_tokens"),
+        usage.get("completion_tokens"),
+        latency_s=time.perf_counter() - start if start is not None else None,
+    )
+
+
+@crewai_event_bus.on(LLMCallFailedEvent)
+def _on_llm_call_failed(source, event: LLMCallFailedEvent) -> None:
+    start = _llm_call_started.pop(event.call_id, None)
+    record_usage(
+        "study_buddy",
+        event.model or model_for("study_buddy"),
+        0,
+        0,
+        latency_s=time.perf_counter() - start if start is not None else None,
+        status="error",
+        error=str(event.error)[:300],
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -128,10 +185,14 @@ def build_study_buddy_crew(
     """
     topic_analyser = TopicAnalyserTool()
 
-    # Configure CrewAI to use Ollama
+    # Configure CrewAI to use OpenRouter. The "openrouter/" prefix routes
+    # the call through LiteLLM's OpenRouter provider. Only the model config
+    # is shared with the LangGraph side (src/llm.py), not any LangChain code.
     llm = LLM(
-        model=f"ollama/{MODEL_NAME}",
-        base_url=OLLAMA_BASE_URL,
+        model=f"openrouter/{model_for('study_buddy')}",
+        base_url=OPENROUTER_BASE_URL,
+        api_key=get_api_key(),
+        temperature=0.5,   # A "fresh angle" benefits from some variety
     )
 
     study_buddy_agent = Agent(
@@ -244,10 +305,9 @@ class StudyBuddyExecutor(AgentExecutor):
         """Handle an incoming A2A study assistance task."""
 
         # ── Parse request ─────────────────────────────────────────────
-        request_text = ""
-        for part in context.current_request.params.message.parts:
-            if isinstance(part, TextPart):
-                request_text += part.text
+        # get_user_input() joins the text parts of the incoming message
+        # (a2a-sdk 0.3 wraps each part as Part(root=TextPart(...))).
+        request_text = context.get_user_input()
 
         try:
             request_data = json.loads(request_text)
@@ -297,10 +357,13 @@ class StudyBuddyExecutor(AgentExecutor):
             }
 
         # ── Emit result ───────────────────────────────────────────────
+        # new_agent_text_message() sets the required message_id and ties
+        # the reply to this request's task/context IDs.
         await event_queue.enqueue_event(
-            Message(
-                role="agent",
-                parts=[TextPart(text=json.dumps(result, indent=2))],
+            new_agent_text_message(
+                json.dumps(result, indent=2),
+                context_id=context.context_id,
+                task_id=context.task_id,
             )
         )
 

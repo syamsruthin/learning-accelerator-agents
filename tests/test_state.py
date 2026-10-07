@@ -3,7 +3,7 @@ tests/test_state.py
 
 Validation tests for the shared state definition.
 
-These tests are fast and deterministic, they do NOT call Ollama.
+These tests are fast and deterministic, they do NOT call the LLM.
 They verify that the data structures work correctly before any
 agents are built on top of them.
 

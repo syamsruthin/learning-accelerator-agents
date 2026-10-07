@@ -23,17 +23,12 @@ Architecture pattern:
 """
 
 import json
-import os
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_ollama import ChatOllama
 
 from graph.state import QuizQuestion, QuizResult, get_current_topic
-
-
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+from llm import get_chat_model, parse_json_content
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +61,10 @@ Rules:
   - Include at least one question about a common mistake or gotcha
   - expected_answer should be concise but complete
   - Avoid yes/no questions, ask for explanation or demonstration
+  - Phrase every question as a direct question ("Why does...?", "What
+    happens...?"), never as an instruction ("Explain...", "Describe...")
+  - If a question includes a code snippet, put the code first; the question
+    text must always END with a "?" character
 """
 
 GRADING_PROMPT = """You are a fair teacher grading a student's answer.
@@ -85,7 +84,7 @@ Return ONLY valid JSON with no prose or markdown:
   "correct": true,
   "score": 0.85,
   "feedback": "One specific sentence of feedback",
-  "missing_concept": "Key concept missed, or empty string if answer is correct"
+  "missing_concept": "Short noun phrase (2-6 words) naming the key concept missed, or empty string if answer is correct"
 }}
 """
 
@@ -103,11 +102,10 @@ def generate_questions(topic: str, explanation: str, n: int = 3) -> list[dict]:
         List of question dicts with keys: question, expected_answer, difficulty.
         Falls back to one generic question if LLM output can't be parsed.
     """
-    llm = ChatOllama(
-        model=MODEL_NAME,
-        base_url=OLLAMA_BASE_URL,
+    llm = get_chat_model(
+        "quiz",
         temperature=0.4,   # Some creativity for varied questions
-        format="json",
+        json_mode=True,
     )
 
     prompt = GENERATION_PROMPT.format(n=n)
@@ -126,7 +124,7 @@ def generate_questions(topic: str, explanation: str, n: int = 3) -> list[dict]:
         }]
     
     try:
-        data = json.loads(response.content)
+        data = parse_json_content(response.content)
         questions = data.get("questions", [])
         if questions and isinstance(questions, list):
             return questions
@@ -157,12 +155,9 @@ def grade_answer(question: str, expected: str, student_answer: str) -> dict:
         Returns a safe default if LLM output can't be parsed.
     """
     # Very low temperature, grading should be consistent and analytical
-    llm = ChatOllama(
-        model=MODEL_NAME,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.1,
-        format="json",
-    )
+    # Separate "grader" role: a different model family from the question
+    # writer, so grading isn't biased toward the generator's own phrasing.
+    llm = get_chat_model("grader", temperature=0.1, json_mode=True)
 
     prompt = GRADING_PROMPT.format(
         question=question,
@@ -183,7 +178,7 @@ def grade_answer(question: str, expected: str, student_answer: str) -> dict:
         }
     
     try:
-        return json.loads(response.content)
+        return parse_json_content(response.content)
     except json.JSONDecodeError:
         # Safe default if grading fails
         return {

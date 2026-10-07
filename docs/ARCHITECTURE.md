@@ -1,5 +1,8 @@
 # Architecture Reference
 
+> **Note:** This project now uses OpenRouter instead of local Ollama for all LLM calls.
+> Per-agent model defaults live in `src/llm.py` (`ROLE_MODELS`). Ollama-specific guidance below is kept for reference.
+
 This document explains the architectural decisions behind the Learning
 Accelerator multi-agent system.
 

@@ -23,6 +23,8 @@ Everything is observed via the callback system automatically.
 
 import os
 
+from llm import ROLE_MODELS, model_for
+
 
 def _langfuse_configured() -> bool:
     """
@@ -63,9 +65,11 @@ def get_langfuse_handler(session_id: str, user_id: str = "local"):
             user_id=user_id,
             # Tags appear in the Langfuse UI, useful for filtering
             # traces from this tutorial vs other projects
-            tags=["learning-accelerator", "local-inference"],
+            tags=["learning-accelerator", "openrouter"],
             metadata={
-                "model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
+                # Each agent role uses its own model; Langfuse records the
+                # exact model per LLM call, this is just the session overview.
+                "models": {role: model_for(role) for role in ROLE_MODELS},
                 "framework": "langgraph",
             },
         )

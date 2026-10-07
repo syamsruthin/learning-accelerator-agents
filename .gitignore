@@ -35,3 +35,6 @@ windsurf_batches/
 # Test caches
 .pytest_cache/
 .deepeval/
+
+# Claude Code decision logs
+claude-reasoning/

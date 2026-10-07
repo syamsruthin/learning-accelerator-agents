@@ -30,9 +30,8 @@ setup:
 	@echo ""
 	@echo "Setup complete. Next steps:"
 	@echo "  1. source $(VENV)/bin/activate"
-	@echo "  2. Edit .env, set OLLAMA_MODEL to match your VRAM"
-	@echo "  3. ollama pull qwen2.5:7b  (or qwen2.5-coder:32b for 24GB)"
-	@echo "  4. make run"
+	@echo "  2. Edit .env, set OPENROUTER_API_KEY"
+	@echo "  3. make run"
 
 # ── Running ───────────────────────────────────────────────────────────────────
 
@@ -96,7 +95,7 @@ test:
 	$(PYTEST) tests/ -m "not eval" -v
 
 eval:
-	@echo "Running evaluation tests (requires Ollama, ~90 seconds)..."
+	@echo "Running evaluation tests (real OpenRouter calls, ~90 seconds)..."
 	$(PYTEST) tests/test_eval.py -v -s -m eval
 
 test-all:
@@ -133,6 +132,6 @@ help:
 	@echo "  make langfuse-stop  Stop Langfuse"
 	@echo ""
 	@echo "  make test         Run fast unit tests (~3 seconds)"
-	@echo "  make eval         Run eval tests (~90 seconds, Ollama required)"
+	@echo "  make eval         Run eval tests (~90 seconds, OpenRouter calls)"
 	@echo ""
 	@echo "  make clean        Remove checkpoints and cache files"

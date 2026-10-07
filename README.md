@@ -1,7 +1,10 @@
 # Production-Grade Multi-Agent AI System
 
-Build a complete multi-agent AI system that runs entirely on your machine.
-No API keys, no cloud dependencies, no ongoing cost.
+Build a complete multi-agent AI system. The agents and services run on your
+machine; LLM inference goes through [OpenRouter](https://openrouter.ai), with a
+model chosen per agent role (see `src/llm.py`).
+
+> This fork replaces the original local Ollama inference with OpenRouter.
 
 This project is the companion code for the freeCodeCamp handbook:
 **How to Build a Local Multi-Agent AI System with LangGraph, MCP, and A2A**
@@ -45,7 +48,7 @@ compliance training, customer support onboarding, and engineering ramp-up.
 | Orchestration | LangGraph 1.1.0 | Stateful agent graph with checkpointing |
 | Tool integration | MCP (mcp 1.26.0) | Standardised agent-to-tool protocol |
 | Agent coordination | A2A (a2a-sdk 0.3.25) | Cross-framework agent-to-agent protocol |
-| Local inference | Ollama | LLM serving at localhost:11434 |
+| Inference | OpenRouter (via `langchain-openai`) | One API key, a model per agent role |
 | Cross-framework | CrewAI 1.13.0 | Study Buddy agent (called via A2A) |
 | Observability | Langfuse 4.0.1 | Full trace of every agent and LLM call |
 | Evaluation | DeepEval 3.9.1 | LLM-as-judge quality metrics |
@@ -57,10 +60,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a full deep-dive.
 ## Requirements
 
 - Python 3.11+
-- [Ollama](https://ollama.com) installed and running
+- An [OpenRouter API key](https://openrouter.ai/keys)
 - Docker Desktop (for Langfuse observability, optional)
-- 16 GB RAM minimum, 32 GB recommended
-- 8 GB VRAM for `qwen2.5:7b` | 24 GB VRAM for `qwen2.5-coder:32b`
 
 ---
 
@@ -73,19 +74,11 @@ cd freecodecamp-multi-agent-ai-system
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Pull your model (choose based on VRAM)
-ollama pull qwen2.5:7b          # 8 GB VRAM
-ollama pull qwen2.5-coder:32b   # 24 GB VRAM
-
-# 3. Ensure Ollama is running
-ollama serve                  # in a separate terminal
-# Or on macOS: start the Ollama app from your Applications folder
-
-# 4. Configure
+# 2. Configure
 cp .env.example .env
-# Edit .env: set OLLAMA_MODEL to match what you pulled
+# Edit .env: set OPENROUTER_API_KEY (per-agent models are optional overrides)
 
-# 5. Run
+# 3. Run
 python main.py
 ```
 
@@ -128,7 +121,7 @@ freecodecamp-multi-agent-ai-system/
 │   ├── test_observability.py   # 16 tests
 │   ├── test_a2a.py             # 19 tests
 │   ├── test_crewai_interop.py  # 25 tests
-│   └── test_eval.py            # 12 eval tests (requires Ollama)
+│   └── test_eval.py            # 12 eval tests (real OpenRouter calls)
 ├── study_materials/
 │   └── sample_notes/           # Markdown files the agents read
 ├── docs/
@@ -210,7 +203,7 @@ trace UI automatically.
 # 182 tests across 9 test files
 pytest tests/ -m "not eval" -v
 
-# Quality evaluation tests, run before releases (~90 seconds, requires Ollama)
+# Quality evaluation tests, run before releases (~90 seconds, real OpenRouter calls)
 # 12 LLM-as-judge tests
 pytest tests/test_eval.py -v -s -m eval
 ```
@@ -232,10 +225,13 @@ See `.env.example` for all available settings.
 Key toggles:
 | Variable | Default | Effect |
 |---|---|---|
-| `OLLAMA_MODEL` | `qwen2.5:7b` | Model for all agents |
+| `OPENROUTER_API_KEY` | (required) | Key for all LLM calls |
+| `OPENROUTER_MODEL_<ROLE>` | see `src/llm.py` | Per-agent model override (PLANNER, EXPLAINER, QUIZ, GRADER, COACH, STUDY_BUDDY, EVAL_JUDGE) |
 | `USE_A2A_QUIZ` | `true` | Route quiz tasks to A2A service |
 | `USE_STUDY_BUDDY` | `true` | Call CrewAI Study Buddy for low scores |
 | `CHECKPOINT_DB` | `data/checkpoints.db` | SQLite path for checkpoints |
+| `LLM_USAGE_LOG_FILE` | `data/llm_usage.jsonl` | Per-call token usage log (JSON lines); empty disables |
+| `LLM_USAGE_LOG_LEVEL` | `INFO` | `INFO` logs every LLM call's tokens; `WARNING` only failures |
 
 ---
 

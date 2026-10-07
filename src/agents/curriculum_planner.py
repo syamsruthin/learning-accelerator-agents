@@ -17,23 +17,20 @@ It demonstrates the foundational pattern every agent follows:
 """
 
 import json
-import os
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 
 from graph.state import StudyRoadmap, Topic
+from llm import get_chat_model, model_for, parse_json_content
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Model configuration
 #
-# Read from .env so you can switch models without touching code.
-# Defaults to qwen2.5:7b which works on 8GB VRAM.
+# The model is resolved by role in src/llm.py ("planner" role) and can be
+# overridden with OPENROUTER_MODEL_PLANNER in .env.
 # ─────────────────────────────────────────────────────────────────────────────
-
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -89,25 +86,20 @@ Rules:
 # and makes it easier to test with different configurations.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_planner_llm() -> ChatOllama:
+def build_planner_llm() -> ChatOpenAI:
     """
-    Create the Ollama LLM client for the Curriculum Planner.
+    Create the OpenRouter LLM client for the Curriculum Planner.
 
     temperature=0.1, very low temperature for structured output.
     Higher temperature introduces randomness that makes JSON parsing
     less reliable. For creative tasks (like explanations) we use 0.3.
     For structured output, stay at 0.1 or lower.
 
-    format="json", enables Ollama's JSON mode. The model will never
-    produce output that isn't valid JSON. This is a hard constraint
-    at the inference level, not just a prompt instruction.
+    json_mode=True, requests OpenAI-style response_format=json_object
+    through OpenRouter. parse_roadmap_json() still tolerates markdown
+    fences in case a provider adds them.
     """
-    return ChatOllama(
-        model=MODEL_NAME,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.1,
-        format="json",
-    )
+    return get_chat_model("planner", temperature=0.1, json_mode=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,7 +124,7 @@ def parse_roadmap_json(json_string: str) -> StudyRoadmap:
                     The node catches this and returns an error state.
     """
     try:
-        data = json.loads(json_string)
+        data = parse_json_content(json_string)
     except json.JSONDecodeError as e:
         raise ValueError(
             "LLM returned invalid JSON.\n"
@@ -196,7 +188,7 @@ def curriculum_planner_node(state: dict) -> dict:
     Flow:
         1. Extract goal from state
         2. Build LLM messages (system prompt + human message)
-        3. Call Ollama
+        3. Call the LLM (OpenRouter)
         4. Parse JSON response into StudyRoadmap
         5. Return partial state update
     """
@@ -219,7 +211,7 @@ def curriculum_planner_node(state: dict) -> dict:
 
     # Call the LLM. This is a synchronous blocking call.
     # Under the hood, LangChain sends an HTTP POST to localhost:11434.
-    print(f"[Curriculum Planner] Calling {MODEL_NAME}...")
+    print(f"[Curriculum Planner] Calling {model_for('planner')}...")
     try:
         response = llm.invoke(messages)
     except Exception as e:

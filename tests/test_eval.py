@@ -3,7 +3,7 @@ tests/test_eval.py
 
 LLM-as-judge evaluation tests for the Learning Accelerator.
 
-TIER 2 TESTS, require Ollama running locally.
+TIER 2 TESTS, make real OpenRouter API calls (needs OPENROUTER_API_KEY).
 These tests are slow (30-120s each) and non-deterministic.
 Run them before significant changes, not during development.
 
@@ -17,15 +17,14 @@ What these tests check:
   - Progress Coach messages are encouraging and specific
 
 Thresholds:
-  All thresholds are set conservatively (0.6-0.7) to account for
-  variability in local model outputs. Cloud models typically score
-  0.8-0.95 on these metrics. Local 7B models score 0.6-0.8.
+  All thresholds are set conservatively (0.6-0.7). They were tuned for
+  local 7B models (which score 0.6-0.8); the OpenRouter models now used
+  typically score 0.8-0.95, so thresholds are left as a safety floor.
   If a test consistently fails, check the model and prompt first
   before lowering the threshold.
 """
 
 import json
-import os
 
 import pytest
 
@@ -35,37 +34,35 @@ import pytest
 # ─────────────────────────────────────────────────────────────────────────────
 # DeepEval configuration
 #
-# Configure DeepEval to use Ollama as the judge model.
-# This keeps evaluation entirely local, no OpenAI key required.
+# Configure DeepEval to use an OpenRouter model as the judge ("eval_judge"
+# role in src/llm.py). The judge is deliberately a different, stronger model
+# family than the Explainer it grades, to avoid self-preference bias.
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_judge_model():
     """
-    Get the DeepEval judge model configured for local Ollama.
+    Get the DeepEval judge model, served via OpenRouter.
 
-    Uses LiteLLM under the hood to connect to Ollama's OpenAI-compatible API.
     Returns None if deepeval is not installed.
     """
     try:
         from deepeval.models import DeepEvalBaseLLM
-        from langchain_ollama import ChatOllama
+        from llm import get_chat_model, model_for
 
-        class OllamaJudge(DeepEvalBaseLLM):
+        class OpenRouterJudge(DeepEvalBaseLLM):
             """
-            Custom judge model using local Ollama.
+            Custom judge model using OpenRouter.
 
             DeepEval supports custom models via the DeepEvalBaseLLM interface.
-            We wrap ChatOllama to provide the judge capabilities.
+            We wrap the project's ChatOpenAI factory to provide the judge.
             """
 
             def __init__(self):
-                self.model_name = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-                self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+                self.model_name = model_for("eval_judge")
 
             def load_model(self):
-                return ChatOllama(
-                    model=self.model_name,
-                    base_url=self.base_url,
+                return get_chat_model(
+                    "eval_judge",
                     temperature=0.0,  # Deterministic for evaluation
                 )
 
@@ -78,9 +75,9 @@ def get_judge_model():
                 return self.generate(prompt)
 
             def get_model_name(self) -> str:
-                return f"ollama/{self.model_name}"
+                return f"openrouter/{self.model_name}"
 
-        return OllamaJudge()
+        return OpenRouterJudge()
     except ImportError:
         return None
 
@@ -152,7 +149,7 @@ class TestExplainerQuality:
         )
 
         if not self.explanation:
-            pytest.skip("Explainer returned empty output, check Ollama is running")
+            pytest.skip("Explainer returned empty output, check OPENROUTER_API_KEY and network access")
 
         print(f"[TestExplainerQuality] Explanation length: {len(self.explanation)} chars")
 

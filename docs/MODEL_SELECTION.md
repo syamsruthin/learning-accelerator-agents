@@ -1,5 +1,8 @@
 # Model Selection Guide
 
+> **Note:** This project now uses OpenRouter instead of local Ollama for all LLM calls.
+> Per-agent model defaults live in `src/llm.py` (`ROLE_MODELS`). Ollama-specific guidance below is kept for reference.
+
 All agents in this system use Ollama for local inference.
 This guide helps you choose the right model for your hardware.
 

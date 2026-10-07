@@ -24,6 +24,7 @@ from langgraph.types import Command
 from graph.workflow import graph
 from graph.state import initial_state, StudyRoadmap, QuizResult
 from observability.langfuse_setup import get_langfuse_config, flush_langfuse
+from token_usage import format_usage_summary
 
 
 def print_session_summary(result: dict) -> None:
@@ -69,6 +70,18 @@ def print_session_summary(result: dict) -> None:
         print(f"\nTopics to revisit: {', '.join(all_weak)}")
 
     print(f"{'='*60}\n")
+
+
+def print_token_usage() -> None:
+    """Print per-role LLM token totals for this run (every call is also
+    logged individually and appended to data/llm_usage.jsonl)."""
+    summary = format_usage_summary()
+    if summary:
+        print(f"\n{'='*60}")
+        print("LLM Token Usage (this run)")
+        print(f"{'='*60}")
+        print(summary)
+        print(f"{'='*60}\n")
 
 
 def run_session(goal: str, session_id: str | None = None) -> None:
@@ -142,9 +155,11 @@ def run_session(goal: str, session_id: str | None = None) -> None:
     # ── Handle errors ─────────────────────────────────────────────────
     if result.get("error"):
         print(f"\n[ERROR] {result['error']}")
+        print_token_usage()
         return
 
     print_session_summary(result)
+    print_token_usage()
 
     # Flush Langfuse before exiting so all traces are sent
     flush_langfuse()
@@ -157,7 +172,7 @@ if __name__ == "__main__":
         description=(
             "Learning Accelerator: a four-agent study system that plans a "
             "curriculum, explains topics from your notes, quizzes you, and "
-            "adapts based on results. All inference runs locally via Ollama."
+            "adapts based on results. Inference runs via OpenRouter."
         ),
         epilog=(
             "Examples:\n"

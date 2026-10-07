@@ -28,7 +28,6 @@ Integration note:
 """
 
 import json
-import os
 
 from langchain_core.messages import (
     AIMessage,
@@ -37,23 +36,15 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.tools import tool
-from langchain_ollama import ChatOllama
 
 from graph.state import get_current_topic
+from llm import get_chat_model
 from mcp_servers.filesystem_server import (
     list_study_files,
     read_study_file,
     search_notes,
 )
 from mcp_servers.memory_server import memory_get, memory_set
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Model configuration
-# ─────────────────────────────────────────────────────────────────────────────
-
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,9 +239,8 @@ def explainer_node(state: dict) -> dict:
     # bind_tools() tells the LLM what tools are available.
     # The LLM receives the tool schemas (names, descriptions, arg types)
     # as part of the context and can request any of them.
-    llm = ChatOllama(
-        model=MODEL_NAME,
-        base_url=OLLAMA_BASE_URL,
+    llm = get_chat_model(
+        "explainer",
         temperature=0.3,   # Slightly higher than planner, explanations can be creative
     ).bind_tools(EXPLAINER_TOOLS)
 

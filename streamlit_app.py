@@ -306,7 +306,7 @@ def screen_goal_input():
     st.markdown(
         "Enter a learning goal and the system will build a personalised "
         "study plan, explain each topic using your notes, and quiz you "
-        "as you go, all running locally with Ollama."
+        "as you go, powered by models served through OpenRouter."
     )
 
     with st.form("goal_form"):

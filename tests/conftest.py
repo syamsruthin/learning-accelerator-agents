@@ -5,7 +5,7 @@ Shared pytest configuration, fixtures, and markers.
 
 Defines two test markers:
   @pytest.mark.unit , fast, no external deps (default)
-  @pytest.mark.eval , slow, requires Ollama, LLM-as-judge
+  @pytest.mark.eval , slow, makes real OpenRouter calls, LLM-as-judge
 
 Run only unit tests (fast, development):
   pytest tests/ -m "not eval" -v
@@ -30,12 +30,29 @@ def pytest_configure(config):
     """Register custom markers so pytest doesn't warn about unknown marks."""
     config.addinivalue_line(
         "markers",
-        "eval: marks tests as evaluation tests requiring Ollama (deselect with -m 'not eval')"
+        "eval: marks tests as evaluation tests making real OpenRouter calls (deselect with -m 'not eval')"
     )
     config.addinivalue_line(
         "markers",
         "unit: marks tests as fast unit tests with no external dependencies"
     )
+
+
+@pytest.fixture(autouse=True)
+def openrouter_key(request, monkeypatch):
+    """
+    Unit tests build LLM clients (e.g. the CrewAI Study Buddy crew) but never
+    call them, so a placeholder key is enough. Eval tests make real calls and
+    are skipped when no real key is configured.
+    """
+    import os
+    if request.node.get_closest_marker("eval"):
+        from dotenv import load_dotenv
+        load_dotenv(Path(__file__).parent.parent / ".env")
+        if not os.getenv("OPENROUTER_API_KEY"):
+            pytest.skip("OPENROUTER_API_KEY not set, skipping eval test")
+    elif not os.getenv("OPENROUTER_API_KEY"):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-placeholder-key")
 
 
 @pytest.fixture

@@ -157,6 +157,60 @@ class TestSendTask:
         assert "error" in result
         assert "timed out" in result["error"].lower()
 
+    @patch("a2a_services.a2a_client.httpx.post")
+    def test_sends_a2a_message_send_request(self, mock_post):
+        """Request must be JSON-RPC message/send at the agent root URL."""
+        from a2a_services.a2a_client import send_task
+
+        mock_post.return_value = MagicMock(json=MagicMock(return_value={"result": {}}))
+        send_task("http://localhost:9001/", '{"topic": "Test"}')
+
+        url = mock_post.call_args.args[0]
+        payload = mock_post.call_args.kwargs["json"]
+        message = payload["params"]["message"]
+
+        assert url == "http://localhost:9001/"
+        assert payload["jsonrpc"] == "2.0"
+        assert payload["method"] == "message/send"
+        assert message["role"] == "user"
+        assert message["kind"] == "message"
+        assert message["messageId"]
+        assert message["parts"] == [{"kind": "text", "text": '{"topic": "Test"}'}]
+
+    @patch("a2a_services.a2a_client.httpx.post")
+    def test_parses_message_result(self, mock_post):
+        """A Message reply (what our executors emit) should be parsed."""
+        from a2a_services.a2a_client import send_task
+
+        mock_post.return_value = MagicMock(json=MagicMock(return_value={
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": {
+                "kind": "message",
+                "role": "agent",
+                "messageId": "m-1",
+                "parts": [{"kind": "text", "text": json.dumps({"status": "graded", "score": 0.5})}],
+            },
+        }))
+
+        result = send_task("http://localhost:9001", "{}")
+        assert result == {"status": "graded", "score": 0.5}
+
+    @patch("a2a_services.a2a_client.httpx.post")
+    def test_returns_error_on_jsonrpc_error(self, mock_post):
+        """A JSON-RPC error member should become an error dict."""
+        from a2a_services.a2a_client import send_task
+
+        mock_post.return_value = MagicMock(json=MagicMock(return_value={
+            "jsonrpc": "2.0",
+            "id": "1",
+            "error": {"code": -32603, "message": "Internal error"},
+        }))
+
+        result = send_task("http://localhost:9001", "{}")
+        assert "error" in result
+        assert "-32603" in result["error"]
+
 
 class TestDelegateQuizTask:
     """Tests for the high-level delegate_quiz_task function."""

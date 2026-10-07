@@ -3,7 +3,7 @@ tests/test_curriculum_planner.py
 
 Unit tests for the Curriculum Planner agent.
 
-These tests validate the JSON parsing logic WITHOUT calling Ollama.
+These tests validate the JSON parsing logic WITHOUT calling the LLM.
 Fast, deterministic, and always runnable even without a GPU.
 
 Run: python -m pytest tests/test_curriculum_planner.py -v

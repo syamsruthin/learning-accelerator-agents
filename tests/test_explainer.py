@@ -8,7 +8,7 @@ These tests validate everything EXCEPT the LLM call:
   - execute_tool_call error handling
   - Tool result formatting
 
-The full integration test (LLM + tools together) requires Ollama.
+The full integration test (LLM + tools together) calls OpenRouter.
 It is in a separate integration test file (added in Batch 9).
 
 Run: python -m pytest tests/test_explainer.py -v

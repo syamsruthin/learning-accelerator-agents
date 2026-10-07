@@ -47,6 +47,21 @@ def discover_agent(base_url: str) -> dict:
         return {}
 
 
+def _parse_text_parts(parts: list[dict]) -> dict | None:
+    """
+    Return the first text part as a dict (JSON-decoded when possible).
+
+    A2A 0.3 tags parts with "kind"; "type" is accepted for older servers.
+    """
+    for part in parts or []:
+        if part.get("kind", part.get("type")) == "text":
+            try:
+                return json.loads(part["text"])
+            except json.JSONDecodeError:
+                return {"text": part["text"]}
+    return None
+
+
 def send_task(
     base_url: str,
     message_text: str,
@@ -54,68 +69,78 @@ def send_task(
     timeout: float = DEFAULT_TIMEOUT,
 ) -> dict:
     """
-    Submit a task to an A2A agent and return the result.
+    Send a message to an A2A agent and return the result.
 
-    Constructs a JSON-RPC 2.0 tasks/send request, sends it,
-    and extracts the result text from the response envelope.
+    Constructs a JSON-RPC 2.0 message/send request (A2A protocol 0.3),
+    POSTs it to the agent's root URL (where a2a-sdk's
+    A2AStarletteApplication serves JSON-RPC), and extracts the result
+    text from the response envelope.
 
     Args:
         base_url:     Agent base URL.
         message_text: JSON string payload for the task.
-        task_id:      Optional task ID (auto-generated if not provided).
+        task_id:      Optional existing task ID to continue. Omit to let
+                      the agent create a new task.
         timeout:      Seconds to wait before giving up.
 
     Returns:
         Parsed result dict from the agent, or {"error": ...} on failure.
     """
+    message = {
+        "role":      "user",
+        "kind":      "message",
+        "messageId": str(uuid.uuid4()),
+        "parts":     [{"kind": "text", "text": message_text}],
+    }
+    if task_id:
+        message["taskId"] = task_id
+
     payload = {
         "jsonrpc": "2.0",
-        "id":      1,
-        "method":  "tasks/send",
-        "params": {
-            "id":      task_id or str(uuid.uuid4()),
-            "message": {
-                "role":  "user",
-                "parts": [{"type": "text", "text": message_text}],
-            },
-        },
+        "id":      str(uuid.uuid4()),
+        "method":  "message/send",
+        "params":  {"message": message},
     }
 
-    url = f"{base_url.rstrip('/')}/tasks/send"
+    url = f"{base_url.rstrip('/')}/"
     try:
         response = httpx.post(url, json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
 
-        # Extract text from the A2A response envelope
-        # Structure: result.artifacts[0].parts[0].text
-        result = data.get("result", {})
-        artifacts = result.get("artifacts", [])
-        if artifacts:
-            for part in artifacts[0].get("parts", []):
-                if part.get("type") == "text":
-                    try:
-                        return json.loads(part["text"])
-                    except json.JSONDecodeError:
-                        return {"text": part["text"]}
+        # JSON-RPC errors come back as HTTP 200 with an "error" member
+        if "error" in data:
+            err = data["error"]
+            return {"error": f"A2A error {err.get('code')}: {err.get('message')}"}
 
-        # Fallback: check status message
-        status = result.get("status", {})
-        if status:
-            msg = status.get("message", {})
-            for part in msg.get("parts", []):
-                if part.get("type") == "text":
-                    try:
-                        return json.loads(part["text"])
-                    except json.JSONDecodeError:
-                        return {"text": part["text"]}
+        result = data.get("result", {})
+
+        # The agent replied with a Message directly.
+        # Structure: result.parts[0].text
+        if result.get("kind") == "message":
+            parsed = _parse_text_parts(result.get("parts", []))
+            if parsed is not None:
+                return parsed
+
+        # The agent replied with a Task.
+        # Structure: result.artifacts[0].parts[0].text, or result.status.message
+        artifacts = result.get("artifacts") or []
+        if artifacts:
+            parsed = _parse_text_parts(artifacts[0].get("parts", []))
+            if parsed is not None:
+                return parsed
+
+        status_message = (result.get("status") or {}).get("message") or {}
+        parsed = _parse_text_parts(status_message.get("parts", []))
+        if parsed is not None:
+            return parsed
 
         return result
 
     except httpx.TimeoutException:
-        return {"error": f"Quiz service timed out after {timeout}s"}
+        return {"error": f"A2A agent at {url} timed out after {timeout}s"}
     except httpx.ConnectError:
-        return {"error": f"Cannot connect to quiz service at {url}"}
+        return {"error": f"Cannot connect to A2A agent at {url}"}
     except Exception as e:
         return {"error": f"A2A task failed: {type(e).__name__}: {e}"}
 
