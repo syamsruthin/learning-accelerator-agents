@@ -4,7 +4,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
-# Skip eval tests by default, they require Ollama running.
+# Skip eval tests by default, they make real OpenRouter calls.
 # Run all tests:        pytest tests/
 # Run unit tests only:  pytest tests/ -m "not eval"
 # Run eval tests only:  pytest tests/test_eval.py -m eval -s
@@ -13,7 +13,7 @@ addopts = "-m 'not eval'"
 # Test markers, keeps fast and slow tests clearly separated
 markers = [
     "unit: fast tests, no external dependencies",
-    "eval: slow evaluation tests requiring Ollama (LLM-as-judge)",
+    "eval: slow evaluation tests making real OpenRouter calls (LLM-as-judge)",
 ]
 
 [tool.pyright]
